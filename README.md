@@ -1,14 +1,16 @@
 # Audio Merger API
 
-A simple FastAPI application that merges multiple audio files from URLs into a single audio file.
+A FastAPI application that efficiently merges multiple audio files from URLs into a single audio file, optimized for memory usage and performance.
 
 ## Features
 
-- Merge multiple audio files from URLs
+- Asynchronous processing of audio files
+- Memory-efficient streaming downloads and responses
 - API Key authentication
 - Supports various audio formats (automatically converted to MP3)
 - Efficient temporary file handling
 - CORS support
+- Concurrent downloads with sequential processing
 
 ## Setup
 
@@ -27,8 +29,14 @@ API_KEY=your-secret-api-key
 3. Run the server:
 
 ```bash
-uvicorn main:app --reload
+uvicorn main:app --workers 1 --limit-concurrency 50
 ```
+
+## System Requirements
+
+- Minimum Memory: 512MB
+- Recommended Memory: 1GB
+- Maximum Memory: 2GB (for heavy workloads)
 
 ## API Usage
 
@@ -54,7 +62,10 @@ uvicorn main:app --reload
 **Response:**
 
 - Content-Type: `audio/mpeg`
-- The merged audio file will be returned as a downloadable MP3 file
+- The merged audio file will be streamed as a downloadable MP3 file
+- Headers include:
+  - `X-Total-Files`: Total number of input files
+  - `X-Successful-Merges`: Number of successfully merged files
 
 ## Error Handling
 
@@ -64,19 +75,48 @@ The API includes comprehensive error handling for:
 - Failed downloads
 - Invalid API keys
 - Processing errors
+- Empty or invalid audio files
 
 ## Dependencies
 
 - FastAPI
-- uvicorn
-- python-multipart
-- pydantic
+- uvicorn[standard]
+- pydantic[core]
 - python-dotenv
-- requests
+- httpx
 - pydub
 
-## Notes
+## Performance Notes
 
-- Make sure to replace the default API key with a secure one in production
-- The API automatically cleans up temporary files after processing
-- Large files may take longer to process
+- Uses streaming for both downloads and responses
+- Processes files sequentially to optimize memory usage
+- Downloads happen concurrently for better performance
+- Automatically cleans up temporary files
+- Memory usage is optimized for handling large files
+- Uses chunked processing (8KB chunks)
+
+## Production Deployment
+
+For production deployment, consider setting appropriate memory limits:
+
+### Docker
+
+```bash
+docker run -m "1g" --memory-swap "1g" your-image-name
+```
+
+### Kubernetes
+
+```yaml
+resources:
+  limits:
+    memory: "1Gi"
+  requests:
+    memory: "512Mi"
+```
+
+## Security Notes
+
+- Replace the default API key with a secure one in production
+- All temporary files are automatically cleaned up
+- CORS can be configured for specific origins in production
