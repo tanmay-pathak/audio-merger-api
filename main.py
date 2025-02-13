@@ -155,7 +155,8 @@ async def merge_audio(audio_urls: AudioURLs, api_key: str = Depends(get_api_key)
         # Export merged file
         output_filename = f"merged_{uuid.uuid4()}.mp3"
         output_file = os.path.join(TEMP_DIR, output_filename)
-        combined.export(output_file, format="mp3")
+        combined.export(output_file, format="mp3", 
+                      parameters=["-q:a", "4", "-b:a", "128k"])  # Compress with decent quality
         
         # Clear memory
         del combined
