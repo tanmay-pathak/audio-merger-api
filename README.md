@@ -8,6 +8,7 @@ A FastAPI application that efficiently merges multiple audio files from URLs int
 - Memory-efficient streaming downloads and responses
 - API Key authentication
 - Supports various audio formats (automatically converted to MP3)
+- Configurable MP3 compression (bitrate, quality, sample rate, channels)
 - Efficient temporary file handling
 - CORS support
 - Concurrent downloads with sequential processing
@@ -55,7 +56,13 @@ uvicorn main:app --workers 1 --limit-concurrency 50
     "urls": [
         "https://example.com/audio1.mp3",
         "https://example.com/audio2.mp3"
-    ]
+    ],
+    "compression": {
+        "bitrate_kbps": 96,
+        "quality": 5,
+        "sample_rate_hz": 22050,
+        "channels": 1
+    }
 }
 ```
 
@@ -66,6 +73,23 @@ uvicorn main:app --workers 1 --limit-concurrency 50
 - Headers include:
   - `X-Total-Files`: Total number of input files
   - `X-Successful-Merges`: Number of successfully merged files
+  - `X-Output-Bitrate`: Bitrate applied to the merged output
+
+### Compression Options
+
+All compression fields are optional. If omitted, the API defaults to audiobook-friendly settings:
+
+- Bitrate: `64 kbps`
+- FFmpeg quality: `6`
+- Sample rate: `22050 Hz`
+- Channels: mono (`1`)
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `bitrate_kbps` | integer | Target bitrate for the output file in kbps (e.g. `96`). |
+| `quality` | integer | FFmpeg VBR quality (`0` = best, `9` = smallest). |
+| `sample_rate_hz` | integer | Resample the merged audio (e.g. `44100` for higher fidelity). |
+| `channels` | integer | Force mono (`1`) or stereo (`2`) output. |
 
 ## Error Handling
 

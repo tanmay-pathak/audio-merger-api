@@ -6,7 +6,7 @@ from typing import List
 from fastapi import FastAPI, HTTPException, Security, Depends
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, Field, field_validator
 import httpx
 from pydub import AudioSegment
 from dotenv import load_dotenv
@@ -65,8 +65,52 @@ def get_api_key(api_key: str = Security(api_key_header)):
         raise HTTPException(status_code=401, detail="Invalid API Key")
     return api_key
 
-class AudioURLs(BaseModel):
+class CompressionSettings(BaseModel):
+    bitrate_kbps: int | None = Field(
+        default=None,
+        gt=0,
+        description="Target bitrate for the merged MP3 output in kbps"
+    )
+    quality: int | None = Field(
+        default=None,
+        ge=0,
+        le=9,
+        description="FFmpeg VBR quality value (0 = best, 9 = worst)"
+    )
+    sample_rate_hz: int | None = Field(
+        default=None,
+        gt=8000,
+        le=48000,
+        description="Optional output sample rate in Hz"
+    )
+    channels: int | None = Field(
+        default=None,
+        ge=1,
+        le=2,
+        description="Optional number of output audio channels"
+    )
+
+    @field_validator("channels")
+    @classmethod
+    def validate_channels(cls, value: int | None) -> int | None:
+        if value is None:
+            return value
+        if value not in (1, 2):
+            raise ValueError("channels must be 1 (mono) or 2 (stereo)")
+        return value
+
+
+DEFAULT_COMPRESSION = CompressionSettings(
+    bitrate_kbps=64,
+    quality=6,
+    sample_rate_hz=22050,
+    channels=1
+)
+
+
+class AudioMergeRequest(BaseModel):
     urls: List[HttpUrl]
+    compression: CompressionSettings | None = None
 
 async def download_audio(url: str) -> str | None:
     """Download audio file from URL and save to temporary file."""
@@ -104,11 +148,11 @@ async def download_audio(url: str) -> str | None:
         return None
 
 @app.post("/merge-audio/")
-async def merge_audio(audio_urls: AudioURLs, api_key: str = Depends(get_api_key)):
+async def merge_audio(request_data: AudioMergeRequest, api_key: str = Depends(get_api_key)):
     """Merge multiple audio files into one."""
-    logger.info(f"Processing {len(audio_urls.urls)} files")
+    logger.info(f"Processing {len(request_data.urls)} files")
 
-    if not audio_urls.urls:
+    if not request_data.urls:
         raise HTTPException(status_code=400, detail="No URLs provided")
 
     temp_files = []
@@ -116,7 +160,7 @@ async def merge_audio(audio_urls: AudioURLs, api_key: str = Depends(get_api_key)
     
     try:
         # Download all audio files concurrently
-        download_tasks = [download_audio(url) for url in audio_urls.urls]
+        download_tasks = [download_audio(url) for url in request_data.urls]
         temp_files = [f for f in await asyncio.gather(*download_tasks) if f]
         
         if not temp_files:
@@ -152,11 +196,34 @@ async def merge_audio(audio_urls: AudioURLs, api_key: str = Depends(get_api_key)
                 detail="No audio files could be processed"
             )
 
-        # Export merged file
+        # Export merged file with optional compression
         output_filename = f"merged_{uuid.uuid4()}.mp3"
         output_file = os.path.join(TEMP_DIR, output_filename)
-        combined.export(output_file, format="mp3", 
-                      parameters=["-q:a", "4", "-b:a", "128k"])  # Compress with decent quality
+
+        compression = DEFAULT_COMPRESSION.model_copy()
+        if request_data.compression:
+            overrides = request_data.compression.model_dump(exclude_unset=True)
+            compression = compression.model_copy(update=overrides)
+
+        if compression.sample_rate_hz is not None:
+            combined = combined.set_frame_rate(compression.sample_rate_hz)
+        if compression.channels is not None:
+            combined = combined.set_channels(compression.channels)
+
+        target_quality = str(
+            compression.quality if compression.quality is not None else DEFAULT_COMPRESSION.quality
+        )
+        target_bitrate_value = compression.bitrate_kbps or DEFAULT_COMPRESSION.bitrate_kbps
+        target_bitrate = f"{target_bitrate_value}k"
+
+        export_parameters = ["-q:a", target_quality]
+
+        combined.export(
+            output_file,
+            format="mp3",
+            bitrate=target_bitrate,
+            parameters=export_parameters
+        )  # Compress with configured quality
         
         # Clear memory
         del combined
@@ -174,8 +241,9 @@ async def merge_audio(audio_urls: AudioURLs, api_key: str = Depends(get_api_key)
             media_type="audio/mpeg",
             headers={
                 "Content-Disposition": "attachment; filename=merged.mp3",
-                "X-Total-Files": str(len(audio_urls.urls)),
-                "X-Successful-Merges": str(successful_merges)
+                "X-Total-Files": str(len(request_data.urls)),
+                "X-Successful-Merges": str(successful_merges),
+                "X-Output-Bitrate": target_bitrate
             }
         )
 
