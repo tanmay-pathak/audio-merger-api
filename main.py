@@ -54,6 +54,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "healthy"}
+
 # API Key authentication
 API_KEY = os.getenv("API_KEY")
 if not API_KEY:
