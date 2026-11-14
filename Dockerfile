@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bullseye as builder
+FROM python:3.11-slim-bookworm as builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -11,7 +11,7 @@ RUN python -m venv .venv
 COPY requirements.txt ./
 RUN .venv/bin/pip install --no-cache-dir -r requirements.txt
 
-FROM python:3.11-slim-bullseye
+FROM python:3.11-slim-bookworm
 
 # Install only ffmpeg without extra dependencies
 RUN apt-get update && apt-get install -y \
